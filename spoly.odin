@@ -37,14 +37,14 @@ sigmoid_polynomial_derivatives ::  proc(l : f64, p : [3]f64) -> [3]f64
     return [3]f64{sd * 1, sd * l, sd * l * l}
 }
 
-// evaluates the spoly surface spectra under a given light spectrum
+// returns the xyz color output if a light with spectrum white_spectrum is shone upon a surface with the spoly color
 _spoly_to_xyz :: proc(
     p : SPolyColor,
     color_match_function : proc(f64) -> (f64, f64, f64),
     white_spectrum : proc(f64) -> f64
 ) -> XYZColor
 {
-    // we use lots of rectangular priems to integrate
+    // we use lots of rectangular prisms to integrate
     sum_x : f64 = 0
     sum_y : f64 = 0
     sum_z : f64 = 0
@@ -69,54 +69,7 @@ _spoly_to_xyz :: proc(
     }
 }
 
-// returns the spoly color and then the error
-// white_spectrum is the lighting conditions under which the spoly color spectrum will be perseved as the input xyz color value
-_xyz_to_spoly :: proc(
-    xyz : XYZColor,
-    color_match_function : proc(f64) -> (f64, f64, f64),
-    white_spectrum : proc(f64) -> f64
-) -> (SPolyColor, f64)
-{
-    guess_p := [3]f64{-249, 1, -0.001}
-    target := [3]f64{xyz.x, xyz.y, xyz.z}
-    error := math.INF_F64
-
-    for i in 0..<10000
-    {
-        // we use approximate_d65_whitepoint_function so that under white light a spoly with a spectrum equal to 1 at all points is white in xyz color
-        jacobian := _spoly_to_xyz_jacobian(SPolyColor(guess_p), color_match_function, white_spectrum)
-
-        res_xyz := _spoly_to_xyz(SPolyColor(guess_p), color_match_function, white_spectrum)
-        res := [3]f64{res_xyz.x, res_xyz.y, res_xyz.z} - target
-        error = linalg.length(res)
-
-        if math.abs(linalg.determinant(jacobian)) < 1e-30
-        {
-            // we will have alot of numerical instability if the jacobian is very small so we stop
-            // this is fine since if we stop here we are likley very close to a local minimum anyway
-            break;
-        }
-
-        if error < 1e-4
-        {
-            break;
-        }
-
-        d_guess := linalg.inverse(jacobian) * res
-        if linalg.length(d_guess) < 0.000001
-        {
-            break;
-        }
-        guess_p = guess_p - d_guess * 8 // we times by 8 as we have figured out it makes it zoom to converge more than 8 can make it sometimes jump too far and not converge
-
-
-        m := math.max(math.max(guess_p[0], guess_p[1]), guess_p[2]);
-
-        guess_p = linalg.clamp(guess_p, [3]f64{-1000, -1000, -1000}, [3]f64{1000, 1000, 1000})
-    }
-    return SPolyColor(guess_p), error
-}
-
+// the jacobian of _spoly_to_xyz
 _spoly_to_xyz_jacobian :: proc(
     p : SPolyColor,
     color_match_function : proc(f64) -> (f64, f64, f64),
@@ -144,21 +97,73 @@ _spoly_to_xyz_jacobian :: proc(
     }
 }
 
+// returns the spoly color and then the error
+// white_spectrum is the lighting conditions under which the spoly color spectrum will be preserved as the input xyz color value
+_xyz_to_spoly :: proc(
+    xyz : XYZColor,
+    color_match_function : proc(f64) -> (f64, f64, f64),
+    white_spectrum : proc(f64) -> f64
+) -> (SPolyColor, f64)
+{
+    guess_p := [3]f64{-249, 1, -0.001}
+    target := [3]f64{xyz.x, xyz.y, xyz.z}
+    error := math.INF_F64
+
+    for i in 0..<10000
+    {
+        // we use approximate_d65_whitepoint_function so that under white light a spoly with a spectrum equal to 1 at all points is white in xyz color
+        jacobian := _spoly_to_xyz_jacobian(SPolyColor(guess_p), color_match_function, white_spectrum)
+
+        res_xyz := _spoly_to_xyz(SPolyColor(guess_p), color_match_function, white_spectrum)
+        res := [3]f64{res_xyz.x, res_xyz.y, res_xyz.z} - target
+        error = linalg.length(res)
+
+        if math.abs(linalg.determinant(jacobian)) < 1e-30
+        {
+            // we will have a lot of numerical instability if the jacobian is very small so we stop
+            // this is fine since if we stop here we are likely very close to a local minimum anyway
+            break;
+        }
+
+        if error < 1e-4
+        {
+            break;
+        }
+
+        d_guess := linalg.inverse(jacobian) * res
+        if linalg.length(d_guess) < 0.000001
+        {
+            break;
+        }
+        guess_p = guess_p - d_guess * 8 // we times by 8 as we have figured out it makes it zoom to converge more than 8 can make it sometimes jump too far and not converge
+
+
+        m := math.max(math.max(guess_p[0], guess_p[1]), guess_p[2]);
+
+        guess_p = linalg.clamp(guess_p, [3]f64{-1000, -1000, -1000}, [3]f64{1000, 1000, 1000})
+    }
+    return SPolyColor(guess_p), error
+}
+
+// returns the xyz color output if a light with d65 spectrum is shone upon a surface with the spoly color
 spoly_to_xyz_d65 :: proc(p : SPolyColor) -> XYZColor
 {
     return _spoly_to_xyz(p, xyz_color_matching_function, d65_whitepoint_function)
 }
 
+// the inverse of spoly_to_xyz_d65
 xyz_d65_to_spoly :: proc(xyz : XYZColor) -> (SPolyColor, f64)
 {
     return _xyz_to_spoly(xyz, xyz_color_matching_function, d65_whitepoint_function)
 }
 
+// a version of spoly_to_xyz_d65 that uses gaussian approximations of the color match functions and whitepoint
 approximate_spoly_to_xyz_d65 :: proc(p : SPolyColor) -> XYZColor
 {
     return _spoly_to_xyz(p, approximate_xyz_color_matching_function, approximate_d65_whitepoint_function)
 }
 
+// a version of xyz_d65_to_spoly that uses gaussian approximations of the color match functions and whitepoint
 approximate_xyz_d65_to_spoly :: proc(xyz : XYZColor) -> (SPolyColor, f64)
 {
     return _xyz_to_spoly(xyz, approximate_xyz_color_matching_function, approximate_d65_whitepoint_function)
