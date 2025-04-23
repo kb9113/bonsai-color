@@ -1,5 +1,6 @@
 # Odin Color
-
+Searchable documentation is available at https://calebmanning.net/odin-color/. \
+\
 A simple library for color conversions between xyz color rgb color
 and sigmoided polynomial spectral representations as outlined in https://www.pbrt.org/.
 However I use the actual jacobian for gauss newton optimization since it gives a smaller error to the target color. \
